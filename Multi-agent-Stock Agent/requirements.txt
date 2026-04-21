@@ -1,0 +1,13 @@
+chromadb
+langchain
+langchain-chroma
+langchain-community
+langchain-core
+langchain-classic
+langchain-google-genai
+pandas
+python-dotenv
+requests
+torch
+transformers
+yfinance
