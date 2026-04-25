@@ -5,7 +5,7 @@ class DataWriter:
         self.transformer_store = transformer_store
 
     def write_news(self, news_list):
-        self.news_store.build(news_list, role="data_team")
+        return self.news_store.build(news_list, role="data_team")
 
     def write_fundamentals(self, fundamentals):
         self.fundamentals_store.add(fundamentals, role="data_team")

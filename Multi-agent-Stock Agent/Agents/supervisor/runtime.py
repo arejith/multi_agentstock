@@ -271,7 +271,7 @@ def build_final_report(plan: SupervisorPlan, analysis_phase: dict, decision_laye
             "recommendation": "analysis_complete",
             "decision": None,
             "confidence": None,
-            "reasoning": [f"Transformer signal: {transformer.get('signal')}"],
+            "reasoning": [f"Transformer forecast: {transformer.get('signal')}"],
             "risks": [],
             "transformer_signal": transformer.get("signal"),
             "prediction": transformer.get("prediction"),
@@ -302,7 +302,7 @@ def build_user_output(result: dict):
         "# Workflow Used",
         workflow,
         "",
-        "# Final Analysis",
+        "# Why This Decision",
     ]
     for item in final_report.get("reasoning") or []:
         lines.append(f"- {item}")

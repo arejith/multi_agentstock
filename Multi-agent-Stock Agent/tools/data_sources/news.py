@@ -45,6 +45,26 @@ def _is_relevant(text: str, ticker: str, sector: str | None = None, keywords: li
 
     return any(keyword in normalized_text for keyword in active_keywords if keyword)
 
+
+def _normalize_signature_value(value: str | None):
+    return " ".join((value or "").strip().lower().split())
+
+
+def _article_signature(ticker: str, title: str, url: str | None, text: str):
+    normalized_title = _normalize_signature_value(title)
+    if normalized_title:
+        return ("title", ticker.upper(), normalized_title)
+    normalized_url = (url or "").strip().lower()
+    if normalized_url:
+        return ("url", ticker.upper(), normalized_url)
+    return (
+        "content",
+        ticker.upper(),
+        _normalize_signature_value(title),
+        _normalize_signature_value(text),
+    )
+
+
 def _extract_article_text(url: str | None):
     if not url:
         return None
@@ -89,6 +109,7 @@ def get_news(ticker="AAPL", limit=5, sector: str | None = None, keywords: list[s
 
     ranked_articles = sorted(data, key=lambda item: item.get("datetime") or 0, reverse=True)
     articles = []
+    seen_signatures = set()
     active_keywords = [keyword.strip().lower() for keyword in (keywords or []) if keyword and keyword.strip()]
 
     for article in ranked_articles:
@@ -106,6 +127,10 @@ def get_news(ticker="AAPL", limit=5, sector: str | None = None, keywords: list[s
         timestamp = _format_timestamp(published_at)
         article_text = _extract_article_text(article.get("url"))
         final_text = article_text if article_text and len(article_text) >= 100 else text
+        signature = _article_signature(ticker, title, article.get("url"), final_text)
+        if signature in seen_signatures:
+            continue
+        seen_signatures.add(signature)
 
         articles.append(
             {

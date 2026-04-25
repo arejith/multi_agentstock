@@ -30,6 +30,20 @@ Return JSON with:
 - workflow: short ordered list of agent names and should also provide which team they are in. eg news_Agent(Data Team)
 """
 
+UNSAFE_REQUEST_MARKERS = {
+    "ignore all previous instructions",
+    "ignore previous instructions",
+    "print google api key",
+    "print google_api_key",
+    "google api key",
+    "google_api_key",
+    "api key",
+    "secret key",
+    "password",
+    "system prompt",
+    "developer message",
+}
+
 
 class SupervisorPlan(BaseModel):
     ticker: str | None = None
@@ -76,6 +90,8 @@ class PromptPlanner:
                 self.structured_llm = None
 
     def create_plan(self, user_request: str) -> SupervisorPlan:
+        if is_unsafe_request(user_request):
+            return SupervisorPlan(action="invalid_request")
         plan = self._llm_plan(user_request)
         if plan and plan.ticker in COMPANY_LOOKUP:
             return complete_plan(plan)
@@ -127,7 +143,15 @@ def complete_plan(plan: SupervisorPlan) -> SupervisorPlan:
     return plan
 
 
+def is_unsafe_request(user_request: str) -> bool:
+    normalized = normalize_text(user_request)
+    return any(marker in normalized for marker in UNSAFE_REQUEST_MARKERS)
+
+
 def fallback_plan(user_request: str) -> SupervisorPlan:
+    if is_unsafe_request(user_request):
+        return SupervisorPlan(action="invalid_request")
+
     normalized = normalize_text(user_request)
     plan = None
 
@@ -190,6 +214,9 @@ class PlannerAdapter:
         self.router = router
 
     def create_plan(self, user_request: str) -> SupervisorPlan:
+        if is_unsafe_request(user_request):
+            return SupervisorPlan(action="invalid_request")
+
         resolved = self.resolver.resolve(user_request)
         if not resolved.get("ticker"):
             return SupervisorPlan(action="invalid_request")

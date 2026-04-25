@@ -128,7 +128,8 @@ def run_agent_pipeline_test():
         raise AssertionError(f"Unexpected sentiment output: {result['analysis_phase']['news_analysis']['sentiment']}")
     if result["analysis_phase"]["risk_analysis"]["risk"]["risk_level"] != "low":
         raise AssertionError(f"Unexpected risk output: {result['analysis_phase']['risk_analysis']['risk']}")
-    if result["analysis_phase"]["transformer_analysis"]["transformer"]["signal"] not in {"BUY", "SELL", "HOLD"}:
+    transformer_signal = result["analysis_phase"]["transformer_analysis"]["transformer"]["signal"]
+    if "predicted daily return" not in transformer_signal:
         raise AssertionError(f"Unexpected transformer signal: {result['analysis_phase']['transformer_analysis']['transformer']}")
 
     expected_transformer_timestamp = fake_download("AAPL")["Close"].index[-1].isoformat()

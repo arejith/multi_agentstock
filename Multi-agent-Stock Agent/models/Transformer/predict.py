@@ -28,8 +28,4 @@ class TransformerPredictor:
         }
 
     def _get_signal(self, value):
-        if value > 0.01:
-            return "BUY"
-        if value < -0.01:
-            return "SELL"
-        return "HOLD"
+        return f"The predicted daily return for next day is {value:.6f} %"

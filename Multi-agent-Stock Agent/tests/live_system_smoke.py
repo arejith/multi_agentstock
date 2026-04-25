@@ -57,7 +57,8 @@ def validate_result(result: dict):
             raise AssertionError(f"Sentiment did not analyze any stored news: {analysis_phase['news_analysis']}")
         if analysis_phase["risk_analysis"]["risk"]["risk_level"] not in {"low", "medium", "high", "unknown"}:
             raise AssertionError(f"Unexpected risk level: {analysis_phase['risk_analysis']['risk']}")
-        if analysis_phase["transformer_analysis"]["transformer"]["signal"] not in {"BUY", "SELL", "HOLD", "UNKNOWN"}:
+        transformer_signal = analysis_phase["transformer_analysis"]["transformer"]["signal"]
+        if transformer_signal != "UNKNOWN" and "predicted daily return" not in transformer_signal:
             raise AssertionError(
                 f"Unexpected transformer signal: {analysis_phase['transformer_analysis']['transformer']}"
             )
@@ -114,7 +115,8 @@ def validate_result(result: dict):
         return
 
     if action == "analyze_transformer":
-        if analysis_phase["transformer_analysis"]["transformer"]["signal"] not in {"BUY", "SELL", "HOLD", "UNKNOWN"}:
+        transformer_signal = analysis_phase["transformer_analysis"]["transformer"]["signal"]
+        if transformer_signal != "UNKNOWN" and "predicted daily return" not in transformer_signal:
             raise AssertionError(f"Transformer-only request failed: {analysis_phase}")
         if final_report["recommendation"] != "analysis_complete":
             raise AssertionError(f"Transformer-only final report invalid: {final_report}")

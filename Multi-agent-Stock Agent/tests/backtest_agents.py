@@ -163,7 +163,8 @@ def run_transformer_backtest(close_prices: pd.DataFrame, selected_pairs: list[tu
 
             prediction = predictor.predict_prepared(prepared_input)
             predicted_value = float(prediction["prediction"])
-            predicted_signal = prediction["signal"]
+            transformer_forecast = prediction["signal"]
+            predicted_signal = classify_signal(predicted_value)
             actual_return = float(returns.iloc[index + 1][ticker])
             actual_signal = classify_signal(actual_return)
 
@@ -176,6 +177,7 @@ def run_transformer_backtest(close_prices: pd.DataFrame, selected_pairs: list[tu
                 "as_of": returns.index[index].date().isoformat(),
                 "target_date": returns.index[index + 1].date().isoformat(),
                 "predicted_value": predicted_value,
+                "transformer_forecast": transformer_forecast,
                 "predicted_signal": predicted_signal,
                 "actual_return": actual_return,
                 "actual_signal": actual_signal,
@@ -269,11 +271,12 @@ def evaluate_snapshot_records(records: list[dict], returns: pd.DataFrame):
                 prediction = TransformerPredictor().predict_prepared(prepared_input)
                 transformer_prediction = float(prediction["prediction"])
                 transformer_signal = prediction["signal"]
+                predicted_signal = classify_signal(transformer_prediction)
                 actual_return = float(returns.iloc[index + 1][ticker])
                 actual_signal = classify_signal(actual_return)
                 predicted_direction = "UP" if transformer_prediction > 0 else "DOWN" if transformer_prediction < 0 else "FLAT"
                 actual_direction = "UP" if actual_return > 0 else "DOWN" if actual_return < 0 else "FLAT"
-                transformer_signal_match = transformer_signal == actual_signal
+                transformer_signal_match = predicted_signal == actual_signal
                 transformer_direction_match = predicted_direction == actual_direction
 
         analysis_phase = {

@@ -59,12 +59,13 @@ def create_news_write_tool(writer, llm=None):
                 "keywords": keywords,
             }
 
-        writer.write_news(news_list)
+        stored_count = writer.write_news(news_list)
 
         return {
-            "status": "stored",
+            "status": "stored" if stored_count else "duplicate",
             "ticker": ticker,
-            "stored_count": len(news_list),
+            "fetched_count": len(news_list),
+            "stored_count": stored_count,
             "latest_date": news_list[0].get("date"),
             "keywords": keywords,
         }

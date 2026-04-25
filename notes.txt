@@ -1,0 +1,21 @@
+open vs code
+open terminal in vs code
+type : cd "C:\Users\ajaya\OneDrive\Desktop\purdue_study\techno_day_project\Techno_project 2026\Multi-agent-Stock Agent"
+type : .\venv\Scripts\activate 
+type : python .\demo_run_loop.py
+
+
+transformer trained stocks
+     "AAPL", "Apple Inc.", "Information Technology", "technology"),
+    ("AMZN", "Amazon.com Inc.", "Consumer Discretionary", "consumer_discretionary"),
+    ("CAT", "Caterpillar Inc.", "Industrials", "industrials"),
+    ("DOW", "Dow Inc.", "Materials", "materials"),
+    ("GOOGL", "Alphabet Inc.", "Communication Services", "communication_services"),
+    ("JNJ", "Johnson & Johnson", "Health Care", "healthcare"),
+    ("JPM", "JPMorgan Chase & Co.", "Financials", "financials"),
+    ("MSFT", "Microsoft Corp.", "Information Technology", "software"),
+    ("WMT", "Walmart Inc.", "Consumer Staples", "consumer_staples"),
+    ("XOM", "Exxon Mobil Corp.", "Energy", "energy"),
+    ("NVDA", "NVIDIA Corp.", "Information Technology", None),
+    ("TSLA", "Tesla Inc.", "Consumer Discretionary", None),
+]

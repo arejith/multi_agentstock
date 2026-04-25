@@ -39,6 +39,7 @@ class NewsVectorStore:
             self._build_signature(doc.page_content, doc.metadata)
             for doc in self.documents
         }
+        stored_count = 0
 
         for news in news_list:
             text = news.get("text", "").strip()
@@ -62,10 +63,11 @@ class NewsVectorStore:
             metadatas.append(metadata)
             self.documents.append(MemoryDocument(page_content=text, metadata=metadata))
             seen_signatures.add(signature)
+            stored_count += 1
 
         if not texts:
             if news_list:
-                return
+                return 0
             raise ValueError("No valid news data")
 
         if self.store is not None:
@@ -73,6 +75,7 @@ class NewsVectorStore:
                 self.store.add_texts(texts, metadatas)
             except Exception:
                 self.store = None
+        return stored_count
 
     def query(self, query, ticker=None, k=3):
         if self.store is not None:
@@ -102,11 +105,24 @@ class NewsVectorStore:
                 if result.metadata.get("ticker") == ticker
             ]
 
-        return results[:k]
+        deduped_results = []
+        seen_signatures = set()
+        for result in results:
+            signature = self._build_signature(result.page_content, result.metadata)
+            if signature in seen_signatures:
+                continue
+            seen_signatures.add(signature)
+            deduped_results.append(result)
+
+        return deduped_results[:k]
 
     def _build_signature(self, text, metadata):
         normalized_text = " ".join((text or "").strip().lower().split())
         normalized_title = (metadata.get("title") or "").strip().lower()
         normalized_url = (metadata.get("url") or "").strip().lower()
         normalized_ticker = (metadata.get("ticker") or "").strip().upper()
-        return (normalized_ticker, normalized_title, normalized_url, normalized_text)
+        if normalized_title:
+            return ("title", normalized_ticker, normalized_title)
+        if normalized_url:
+            return ("url", normalized_ticker, normalized_url)
+        return ("content", normalized_ticker, normalized_text)
