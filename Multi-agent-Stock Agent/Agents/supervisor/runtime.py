@@ -1,10 +1,6 @@
 from dataclasses import dataclass
-import json
 
 from config import get_default_llm
-from langchain.tools import tool
-from langchain_classic.agents import AgentType, initialize_agent
-from langchain_classic.memory import ConversationBufferMemory
 from memory.retrievers.fundamentals_retriever import FundamentalsRetriever
 from memory.retrievers.news_retriever import NewsRetriever
 from memory.retrievers.transformer_retriever import TransformerInputRetriever
@@ -16,7 +12,7 @@ from Agents.analysis_team.decision import DecisionLayer
 from Agents.analysis_team.analysis_team import AnalysisTeam
 from Agents.data_team.data_team import DataTeam
 from Agents.supervisor.glossary import COMPANY_LOOKUP
-from Agents.supervisor.planner import GOLDEN_RULE, PlannerAdapter, PromptPlanner, SupervisorPlan, workflow_steps
+from Agents.supervisor.planner import GOLDEN_RULE, PromptPlanner, SupervisorPlan, workflow_steps
 from tools.tools_registry import get_tool_sets
 
 
@@ -43,7 +39,6 @@ class RuntimeTools:
 @dataclass
 class RuntimeServices:
     supervisor: "SupervisorAgent"
-    pipeline: "SupervisorAgent"
     decision_layer: DecisionLayer
 
 
@@ -57,62 +52,18 @@ class PipelineRuntime:
 
 
 class SupervisorAgent:
-    agent_type = AgentType.CONVERSATIONAL_REACT_DESCRIPTION.value
+    agent_type = "zero-shot-react-description"
 
     def __init__(self, planner, data_team: DataTeam, analysis_team: AnalysisTeam, decision_layer: DecisionLayer, llm):
         self.planner = planner
         self.data_team = data_team
         self.analysis_team = analysis_team
         self.decision_layer = decision_layer
-        self.memory = ConversationBufferMemory(memory_key="chat_history", return_messages=False)
-        self.agent = initialize_agent(
-            tools=self._build_team_tools(),
-            llm=llm,
-            agent=AgentType.CONVERSATIONAL_REACT_DESCRIPTION,
-            memory=self.memory,
-            verbose=False,
-            agent_kwargs={
-                "prefix": (
-                    "You are the Supervisor. Understand the user stock query, use only DataTeam and AnalysisTeam, "
-                    "avoid redundant calls, and keep the workflow minimal."
-                )
-            },
-        )
-
-    def _build_team_tools(self):
-        @tool
-        def DataTeam(request: str) -> str:
-            """Use the Data Team to fetch and write stock data only."""
-            payload = json.loads(request)
-            plan = SupervisorPlan.model_validate_json(payload["plan_json"])
-            return json.dumps(self.data_team.execute(plan), default=str)
-
-        @tool
-        def AnalysisTeam(request: str) -> str:
-            """Use the Analysis Team to read stored data and analyze it only."""
-            payload = json.loads(request)
-            plan = SupervisorPlan.model_validate_json(payload["plan_json"])
-            return json.dumps(self.analysis_team.execute(plan, payload["news_query"]), default=str)
-
-        return [DataTeam, AnalysisTeam]
+        self.memory = None
+        self.llm = llm
 
     def run(self, ticker: str, sector: str, news_query: str | None = None, company_name: str | None = None):
-        entry = COMPANY_LOOKUP.get(ticker, {"company": company_name or ticker, "sector": sector, "tool_sector": sector})
-        plan = SupervisorPlan(
-            ticker=ticker,
-            company=company_name or entry["company"],
-            sector=entry["sector"],
-            tool_sector=entry.get("tool_sector") or sector,
-            action="full_analysis",
-            needs_news=True,
-            needs_fundamentals=True,
-            needs_prices=bool(entry.get("tool_sector") or sector),
-            needs_sentiment=True,
-            needs_risk=True,
-            needs_transformer=bool(entry.get("tool_sector") or sector),
-            needs_decision=True,
-        )
-        plan.workflow = workflow_steps(plan)
+        plan = self._build_full_analysis_plan(ticker, sector, company_name=company_name)
         return self._execute(plan, user_request=None, news_query=news_query or ticker)
 
     def run_request(self, user_request: str):
@@ -122,10 +73,9 @@ class SupervisorAgent:
         return self._execute(plan, user_request=user_request, news_query=plan.company or plan.ticker)
 
     def _execute(self, plan: SupervisorPlan, user_request: str | None, news_query: str):
-        plan.workflow = workflow_steps(plan)
-        plan_json = plan.model_dump_json()
-        raw_data_phase = self._run_team_tool("DataTeam", plan_json=plan_json)
-        raw_analysis_phase = self._run_team_tool("AnalysisTeam", plan_json=plan_json, news_query=news_query)
+        self._refresh_workflow(plan)
+        raw_data_phase = self.data_team.execute(plan)
+        raw_analysis_phase = self.analysis_team.execute(plan, news_query)
         data_phase = build_data_phase(plan, raw_data_phase, raw_analysis_phase)
         analysis_phase = build_analysis_phase(plan, news_query, raw_analysis_phase)
         final_report = build_final_report(plan, analysis_phase, self.decision_layer)
@@ -156,17 +106,32 @@ class SupervisorAgent:
             "final_report": final_report,
         }
         result["user_output"] = build_user_output(result)
-        if user_request:
-            self.memory.save_context({"input": user_request}, {"output": result["user_output"]["response"]})
         return result
 
-    def _run_team_tool(self, tool_name: str, *, plan_json: str, news_query: str | None = None):
-        if tool_name == "DataTeam":
-            plan = SupervisorPlan.model_validate_json(plan_json)
-            return self.data_team.execute(plan)
-        else:
-            plan = SupervisorPlan.model_validate_json(plan_json)
-            return self.analysis_team.execute(plan, news_query or plan.company or plan.ticker)
+    def _build_full_analysis_plan(self, ticker: str, sector: str, company_name: str | None = None):
+        entry = COMPANY_LOOKUP.get(
+            ticker,
+            {"company": company_name or ticker, "sector": sector, "tool_sector": sector},
+        )
+        plan = SupervisorPlan(
+            ticker=ticker,
+            company=company_name or entry["company"],
+            sector=entry["sector"],
+            tool_sector=entry.get("tool_sector") or sector,
+            action="full_analysis",
+            needs_news=True,
+            needs_fundamentals=True,
+            needs_prices=bool(entry.get("tool_sector") or sector),
+            needs_sentiment=True,
+            needs_risk=True,
+            needs_transformer=bool(entry.get("tool_sector") or sector),
+            needs_decision=True,
+        )
+        self._refresh_workflow(plan)
+        return plan
+
+    def _refresh_workflow(self, plan: SupervisorPlan):
+        plan.workflow = workflow_steps(plan)
 
 
 def build_data_phase(plan: SupervisorPlan, raw_data_phase: dict, raw_analysis_phase: dict):
@@ -218,6 +183,18 @@ def build_analysis_phase(plan: SupervisorPlan, news_query: str, raw_analysis_pha
 
 
 def build_final_report(plan: SupervisorPlan, analysis_phase: dict, decision_layer: DecisionLayer):
+    quick_report = build_quick_report(plan, analysis_phase)
+    if quick_report is not None:
+        return quick_report
+    return decision_layer.decide(
+        ticker=plan.ticker,
+        company=plan.company,
+        sector=plan.sector,
+        analysis_outputs=analysis_phase,
+    )
+
+
+def build_quick_report(plan: SupervisorPlan, analysis_phase: dict):
     if plan.action == "fetch_news":
         news_count = len(analysis_phase.get("news_analysis", {}).get("news") or [])
         return {
@@ -276,12 +253,7 @@ def build_final_report(plan: SupervisorPlan, analysis_phase: dict, decision_laye
             "transformer_signal": transformer.get("signal"),
             "prediction": transformer.get("prediction"),
         }
-    return decision_layer.decide(
-        ticker=plan.ticker,
-        company=plan.company,
-        sector=plan.sector,
-        analysis_outputs=analysis_phase,
-    )
+    return None
 
 
 def build_user_output(result: dict):
@@ -367,9 +339,6 @@ def build_runtime(*, supervisor_llm=None, data_llm=None, analysis_llm=None, requ
     analysis_tools = {tool.name: tool for tool in tool_sets["analysis_tools"]}
 
     planner = PromptPlanner(shared_llm)
-    if request_resolver and hasattr(request_resolver, "resolve"):
-        planner = PlannerAdapter(request_resolver, request_router)
-
     decision_layer = DecisionLayer(llm=analysis_llm or shared_llm)
     supervisor = SupervisorAgent(
         planner=planner,
@@ -384,7 +353,7 @@ def build_runtime(*, supervisor_llm=None, data_llm=None, analysis_llm=None, requ
         writer=writer,
         retrievers=RuntimeRetrievers(news_retriever, fundamentals_retriever, transformer_retriever),
         tools=RuntimeTools(data_tools, analysis_tools),
-        services=RuntimeServices(supervisor=supervisor, pipeline=supervisor, decision_layer=decision_layer),
+        services=RuntimeServices(supervisor=supervisor, decision_layer=decision_layer),
     )
 
 

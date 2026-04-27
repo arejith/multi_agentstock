@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 
-from Agents.supervisor.glossary import COMPANY_GLOSSARY, COMPANY_LOOKUP, glossary_text, normalize_text
+from Agents.supervisor.glossary import COMPANY_LOOKUP, glossary_text, normalize_text
 
 GOLDEN_RULE = "Data Team only fetches and writes. Analysis Team only reads existing outputs and analyzes them."
 
@@ -82,30 +82,19 @@ def workflow_steps(plan: SupervisorPlan) -> list[str]:
 
 class PromptPlanner:
     def __init__(self, llm=None):
-        self.structured_llm = None
-        if llm is not None and hasattr(llm, "with_structured_output"):
-            try:
-                self.structured_llm = llm.with_structured_output(SupervisorPlan)
-            except Exception:
-                self.structured_llm = None
+        if llm is None or not hasattr(llm, "with_structured_output"):
+            raise ValueError("PromptPlanner requires an LLM with structured output support")
+        self.structured_llm = llm.with_structured_output(SupervisorPlan)
 
     def create_plan(self, user_request: str) -> SupervisorPlan:
         if is_unsafe_request(user_request):
             return SupervisorPlan(action="invalid_request")
-        plan = self._llm_plan(user_request)
-        if plan and plan.ticker in COMPANY_LOOKUP:
-            return complete_plan(plan)
-        return fallback_plan(user_request)
-
-    def _llm_plan(self, user_request: str) -> SupervisorPlan | None:
-        if self.structured_llm is None:
-            return None
-        try:
-            return self.structured_llm.invoke(
-                SUPERVISOR_PROMPT.format(glossary=glossary_text()) + f"\nUser query: {user_request}"
-            )
-        except Exception:
-            return None
+        plan = self.structured_llm.invoke(
+            SUPERVISOR_PROMPT.format(glossary=glossary_text()) + f"\nUser query: {user_request}"
+        )
+        if not plan or plan.ticker not in COMPANY_LOOKUP:
+            return SupervisorPlan(action="invalid_request")
+        return complete_plan(plan)
 
 
 def complete_plan(plan: SupervisorPlan) -> SupervisorPlan:
@@ -146,120 +135,3 @@ def complete_plan(plan: SupervisorPlan) -> SupervisorPlan:
 def is_unsafe_request(user_request: str) -> bool:
     normalized = normalize_text(user_request)
     return any(marker in normalized for marker in UNSAFE_REQUEST_MARKERS)
-
-
-def fallback_plan(user_request: str) -> SupervisorPlan:
-    if is_unsafe_request(user_request):
-        return SupervisorPlan(action="invalid_request")
-
-    normalized = normalize_text(user_request)
-    plan = None
-
-    for ticker, company, sector, tool_sector in COMPANY_GLOSSARY:
-        aliases = {
-            normalize_text(ticker),
-            normalize_text(company),
-            normalize_text(company.replace("Inc.", "").replace("Corp.", "").replace("& Co.", "")),
-        }
-        if any(alias and alias in normalized for alias in aliases):
-            plan = SupervisorPlan(
-                ticker=ticker,
-                company=company,
-                sector=sector,
-                tool_sector=tool_sector,
-            )
-            break
-
-    if plan is None:
-        return SupervisorPlan(action="invalid_request")
-
-    if "fetch news" in normalized or normalized.startswith("news ") or " news " in f" {normalized} ":
-        plan.action = "fetch_news"
-        plan.needs_news = True
-    elif "fetch fundamentals" in normalized or "fundamentals" in normalized:
-        plan.action = "fetch_fundamentals"
-        plan.needs_fundamentals = True
-    elif "fetch transformer" in normalized:
-        plan.action = "fetch_transformer_input"
-        plan.needs_prices = bool(plan.tool_sector)
-    elif "sentiment" in normalized:
-        plan.action = "analyze_sentiment"
-        plan.needs_news = True
-        plan.needs_sentiment = True
-    elif "risk" in normalized:
-        plan.action = "analyze_risk"
-        plan.needs_fundamentals = True
-        plan.needs_risk = True
-    elif "transformer" in normalized or "forecast" in normalized or "prediction" in normalized:
-        plan.action = "analyze_transformer"
-        plan.needs_prices = bool(plan.tool_sector)
-        plan.needs_transformer = bool(plan.tool_sector)
-    else:
-        plan.action = "full_analysis"
-        plan.needs_news = True
-        plan.needs_fundamentals = True
-        plan.needs_prices = bool(plan.tool_sector)
-        plan.needs_sentiment = True
-        plan.needs_risk = True
-        plan.needs_transformer = bool(plan.tool_sector)
-        plan.needs_decision = True
-
-    plan.workflow = workflow_steps(plan)
-    return plan
-
-
-class PlannerAdapter:
-    def __init__(self, resolver, router):
-        self.resolver = resolver
-        self.router = router
-
-    def create_plan(self, user_request: str) -> SupervisorPlan:
-        if is_unsafe_request(user_request):
-            return SupervisorPlan(action="invalid_request")
-
-        resolved = self.resolver.resolve(user_request)
-        if not resolved.get("ticker"):
-            return SupervisorPlan(action="invalid_request")
-
-        action = "full_analysis"
-        if self.router and hasattr(self.router, "route"):
-            action = self.router.route(user_request).get("action", "full_analysis")
-
-        entry = COMPANY_LOOKUP.get(resolved["ticker"], {})
-        plan = SupervisorPlan(
-            ticker=resolved["ticker"],
-            company=resolved.get("company_name") or resolved.get("company") or entry.get("company"),
-            sector=resolved.get("sector") or entry.get("sector"),
-            tool_sector=entry.get("tool_sector"),
-            action=action,
-        )
-
-        if plan.ticker in COMPANY_LOOKUP:
-            return complete_plan(plan)
-
-        if action == "fetch_news":
-            plan.needs_news = True
-        elif action == "fetch_fundamentals":
-            plan.needs_fundamentals = True
-        elif action == "fetch_transformer_input":
-            plan.needs_prices = bool(plan.tool_sector)
-        elif action == "analyze_sentiment":
-            plan.needs_news = True
-            plan.needs_sentiment = True
-        elif action == "analyze_risk":
-            plan.needs_fundamentals = True
-            plan.needs_risk = True
-        elif action == "analyze_transformer":
-            plan.needs_prices = bool(plan.tool_sector)
-            plan.needs_transformer = bool(plan.tool_sector)
-        else:
-            plan.needs_news = True
-            plan.needs_fundamentals = True
-            plan.needs_prices = bool(plan.tool_sector)
-            plan.needs_sentiment = True
-            plan.needs_risk = True
-            plan.needs_transformer = bool(plan.tool_sector)
-            plan.needs_decision = True
-
-        plan.workflow = workflow_steps(plan)
-        return plan
