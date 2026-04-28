@@ -52,7 +52,7 @@ class PipelineRuntime:
 
 
 class SupervisorAgent:
-    agent_type = "zero-shot-react-description"
+   
 
     def __init__(self, planner, data_team: DataTeam, analysis_team: AnalysisTeam, decision_layer: DecisionLayer, llm):
         self.planner = planner
